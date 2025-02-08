@@ -1,11 +1,12 @@
 import { useInfiniteQuery, useQueryClient } from 'react-query';
-import { useEffect, useRef, TouchEvent, useState, useCallback } from 'react';
+import { useEffect, useRef, TouchEvent, useState, useCallback, useMemo } from 'react';
 import ArticleCard from './ArticleCard';
 import ArticleCardSkeleton from './ArticleCardSkeleton';
 import Header from '../Navigation/Header';
 import InterestPicker from '../Common/InterestPicker';
-import ErrorState from '../Common/ErrorState';
+import CustomErrorPage from '../Common/CustomErrorPage';
 import StorageService from '../../services/storage';
+import { useVirtualScroll } from '../../hooks/useVirtualScroll';
 import { fetchRandomArticles, fetchArticlesByCategory, WikiArticle } from '../../services/api';
 
 const FeedContainer = () => {
@@ -13,42 +14,16 @@ const FeedContainer = () => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<WikiArticle[]>([]);
   const [showInterests, setShowInterests] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pullStartY, setPullStartY] = useState(0);
+  const [retryAttempts, setRetryAttempts] = useState(0);
   const queryClient = useQueryClient();
   const storage = StorageService.getInstance();
   let touchStart = 0;
 
   const userInterests = storage.getInterests().map(i => i.name);
 
-  const handleTouchStart = (e: TouchEvent) => {
-    touchStart = e.touches[0].clientY;
-  };
-
-  const handleTouchMove = (e: TouchEvent) => {
-    if (!containerRef.current) return;
-    const touchEnd = e.touches[0].clientY;
-    const diff = touchStart - touchEnd;
-    
-    if (
-      (containerRef.current.scrollTop <= 0 && diff < 0) ||
-      (containerRef.current.scrollHeight - containerRef.current.scrollTop <= containerRef.current.clientHeight && diff > 0)
-    ) {
-      e.preventDefault();
-    }
-  };
-
-  const handleCategorySelect = useCallback(async (category: string | null) => {
-    await queryClient.cancelQueries(['articles']);
-    queryClient.removeQueries(['articles']);
-    setSelectedCategory(category);
-    setSearchResults([]);
-    setShowInterests(false);
-  }, [queryClient]);
-
-  const handleSearchResults = useCallback((articles: WikiArticle[]) => {
-    setSearchResults(articles);
-    setShowInterests(false);
-  }, []);
-
+  // Virtual scroll implementation
   const {
     data,
     fetchNextPage,
@@ -60,7 +35,7 @@ const FeedContainer = () => {
     refetch
   } = useInfiniteQuery(
     ['articles', selectedCategory, userInterests],
-    async ({ pageParam }) => {
+    async ({ pageParam = 0 }) => {
       if (selectedCategory) {
         const result = await fetchArticlesByCategory(selectedCategory, pageParam);
         return {
@@ -93,13 +68,101 @@ const FeedContainer = () => {
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor,
       refetchOnWindowFocus: false,
-      cacheTime: 0,
+      refetchOnMount: false,
+      cacheTime: 5 * 60 * 1000, // Cache for 5 minutes
+      staleTime: 60 * 1000, // Consider data stale after 1 minute
+      retry: 3,
+      onError: () => {
+        setRetryAttempts(prev => prev + 1);
+      },
+      // Add suspense mode to prevent loading states
+      suspense: false,
+      // Add keepPreviousData to prevent flash of loading state
+      keepPreviousData: true
     }
   );
 
-  useEffect(() => {
+  // Memoize articles array to prevent unnecessary re-renders
+  const articles = useMemo(() => 
+    searchResults.length > 0 
+      ? searchResults 
+      : (data?.pages?.flatMap(page => page.articles) || []),
+    [searchResults, data?.pages]
+  );
+
+  const { virtualItems } = useVirtualScroll(articles, {
+    itemHeight: window.innerHeight,
+    overscan: 2,
+    containerRef,
+  });
+
+  const handleTouchStart = (e: TouchEvent) => {
+    touchStart = e.touches[0].clientY;
+    if (containerRef.current?.scrollTop === 0) {
+      setPullStartY(e.touches[0].clientY);
+    }
+  };
+
+  const handleTouchMove = (e: TouchEvent) => {
+    if (!containerRef.current) return;
+    const touchEnd = e.touches[0].clientY;
+    const diff = touchStart - touchEnd;
+    
+    // Pull-to-refresh logic
+    if (containerRef.current.scrollTop === 0 && touchEnd > pullStartY && !isRefreshing) {
+      const pullDistance = touchEnd - pullStartY;
+      if (pullDistance > 100) {
+        e.preventDefault();
+        setIsRefreshing(true);
+        refetch().finally(() => {
+          setIsRefreshing(false);
+          setPullStartY(0);
+        });
+      }
+    }
+    
+    // Prevent overscroll
+    if (
+      (containerRef.current.scrollTop <= 0 && diff < 0) ||
+      (containerRef.current.scrollHeight - containerRef.current.scrollTop <= containerRef.current.clientHeight && diff > 0)
+    ) {
+      e.preventDefault();
+    }
+  };
+
+  const handleCategorySelect = useCallback(async (category: string | null) => {
+    if (category === selectedCategory) return;
+    await queryClient.cancelQueries(['articles']);
+    queryClient.removeQueries(['articles']);
+    setSelectedCategory(category);
+    setSearchResults([]);
+    setShowInterests(false);
+  }, [queryClient, selectedCategory]);
+
+  const handleSearchResults = useCallback((articles: WikiArticle[]) => {
+    setSearchResults(articles);
+    setShowInterests(false);
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    setRetryAttempts(0);
     refetch();
-  }, [selectedCategory, refetch]);
+  }, [refetch]);
+
+  // Preload next page when we're close to the end
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    
+    const preloadDistance = 2; // Start preloading when 2 articles from the end
+    const currentArticles = articles.length;
+    const virtualIndex = Math.floor(
+      (containerRef.current?.scrollTop || 0) / window.innerHeight
+    );
+
+    if (currentArticles - virtualIndex <= preloadDistance) {
+      fetchNextPage();
+    }
+  }, [articles.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -108,28 +171,30 @@ const FeedContainer = () => {
           fetchNextPage();
         }
       },
-      { threshold: 0.5 }
+      { threshold: 0.5, rootMargin: '100px' }
     );
 
-    if (containerRef.current) {
-      observer.observe(containerRef.current);
+    const currentContainer = containerRef.current;
+    if (currentContainer) {
+      observer.observe(currentContainer);
     }
 
-    return () => observer.disconnect();
+    return () => {
+      if (currentContainer) {
+        observer.unobserve(currentContainer);
+      }
+      observer.disconnect();
+    };
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
-  const articles = searchResults.length > 0 
-    ? searchResults 
-    : (data?.pages?.flatMap(page => page.articles) || []);
 
   if (isError) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <ErrorState 
-          message={`Failed to load articles: ${(error as Error).message}`}
-          onRetry={refetch}
-        />
-      </div>
+      <CustomErrorPage 
+        title="Failed to Load Articles"
+        message={`We couldn't load the articles. ${retryAttempts < 3 ? 'Please try again.' : 'Please check your connection and try again later.'}`}
+        onRetry={retryAttempts < 3 ? handleRetry : undefined}
+        code={error instanceof Error ? error.message : undefined}
+      />
     );
   }
 
@@ -157,24 +222,94 @@ const FeedContainer = () => {
           </div>
         </div>
       ) : (
-        <div 
-          ref={containerRef}
-          className="snap-container hide-scrollbar bg-slate-900 pt-16 pb-20"
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-        >
-          {isLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <ArticleCardSkeleton key={i} />
-            ))
-          ) : (
-            articles.map((article: WikiArticle) => (
-              <ArticleCard key={article.id} article={article} />
-            ))
+        <>
+          {/* Pull-to-refresh indicator */}
+          {isRefreshing && (
+            <div className="fixed top-16 left-0 right-0 z-50 flex justify-center">
+              <div className="bg-blue-500 text-white px-4 py-2 rounded-full text-sm animate-bounce">
+                Refreshing...
+              </div>
+            </div>
           )}
-          {!searchResults.length && isFetchingNextPage && <ArticleCardSkeleton />}
-          <div ref={containerRef} className="h-20" />
-        </div>
+
+          <div 
+            ref={containerRef}
+            className="snap-container hide-scrollbar bg-slate-900 pt-16 pb-20"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            style={{
+              height: '100vh',
+              overflow: 'auto',
+              WebkitOverflowScrolling: 'touch',
+            }}
+            role="feed"
+            aria-busy={isLoading || isFetchingNextPage}
+            aria-live="polite"
+          >
+            <div 
+              style={{ 
+                height: `${articles.length * window.innerHeight}px`,
+                position: 'relative' 
+              }}
+            >
+              {isLoading && !articles.length ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <ArticleCardSkeleton key={i} />
+                ))
+              ) : (
+                virtualItems.map((virtualIndex) => {
+                  const article = articles[virtualIndex];
+                  return (
+                    <div
+                      key={article.id}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        transform: `translateY(${virtualIndex * window.innerHeight}px)`,
+                      }}
+                    >
+                      <ArticleCard 
+                        article={article}
+                        index={virtualIndex}
+                        totalArticles={articles.length}
+                        onNext={() => {
+                          const nextIndex = virtualIndex + 1;
+                          if (nextIndex < articles.length) {
+                            containerRef.current?.scrollTo({
+                              top: nextIndex * window.innerHeight,
+                              behavior: 'smooth'
+                            });
+                          }
+                        }}
+                        onPrevious={() => {
+                          const prevIndex = virtualIndex - 1;
+                          if (prevIndex >= 0) {
+                            containerRef.current?.scrollTo({
+                              top: prevIndex * window.innerHeight,
+                              behavior: 'smooth'
+                            });
+                          }
+                        }}
+                      />
+                    </div>
+                  );
+                })
+              )}
+              {!searchResults.length && isFetchingNextPage && (
+                <div style={{ 
+                  position: 'absolute',
+                  top: articles.length * window.innerHeight,
+                  width: '100%'
+                }}>
+                  <ArticleCardSkeleton />
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
       
       {selectedCategory ? (

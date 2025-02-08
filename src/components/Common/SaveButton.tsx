@@ -1,18 +1,19 @@
-import React from 'react';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import StorageService from '../../services/storage';
 import { WikiArticle } from '../../services/api';
+import { useToast } from '../Common/ToastContext';
 
 interface SaveButtonProps {
   article: WikiArticle;
+  'aria-describedby'?: string;
 }
 
-const SaveButton: React.FC<SaveButtonProps> = ({ article }) => {
+const SaveButton: React.FC<SaveButtonProps> = ({ article, "aria-describedby": describedBy }) => {
   const [isSaved, setIsSaved] = useState(false);
   const storage = StorageService.getInstance();
+  const { showToast } = useToast();
 
   useEffect(() => {
-    // Check if article is saved
     storage.getSavedArticles().then(articles => {
       setIsSaved(articles.some(a => a.id === article.id));
     });
@@ -22,26 +23,40 @@ const SaveButton: React.FC<SaveButtonProps> = ({ article }) => {
     try {
       if (isSaved) {
         await storage.removeSavedArticle(article.id);
+        showToast(`Removed "${article.title}" from saved articles`, 'info');
       } else {
         await storage.saveArticle(article);
+        showToast(`Saved "${article.title}" for later`, 'success');
       }
       setIsSaved(!isSaved);
     } catch (error) {
       console.error('Failed to save/unsave article:', error);
+      showToast('Failed to save article. Please try again.', 'error');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleSave();
     }
   };
 
   return (
     <button
       onClick={handleSave}
-      className={`p-2 rounded-full transition-colors ${
+      onKeyDown={handleKeyDown}
+      className={`p-2 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-800 ${
         isSaved 
-          ? 'bg-blue-500 text-white hover:bg-blue-600' 
-          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+          ? 'bg-blue-500 text-white hover:bg-blue-600 focus:ring-blue-400' 
+          : 'bg-slate-700 text-slate-300 hover:bg-slate-600 focus:ring-slate-400'
       }`}
-      aria-label={isSaved ? 'Unsave article' : 'Save article'}
+      aria-label={isSaved ? `Unsave ${article.title}` : `Save ${article.title}`}
+      aria-pressed={isSaved}
+      aria-describedby={describedBy}
     >
-      {isSaved ? '⭐' : '☆'}
+      <span className="sr-only">{isSaved ? 'Unsave article' : 'Save article'}</span>
+      <span aria-hidden="true">{isSaved ? '⭐' : '☆'}</span>
     </button>
   );
 };
