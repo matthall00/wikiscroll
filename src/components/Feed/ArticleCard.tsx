@@ -1,11 +1,19 @@
-import React from 'react';
+import { useEffect } from 'react';
 import { WikiArticle } from '../../services/api';
+import SaveButton from '../Common/SaveButton';
+import StorageService from '../../services/storage';
 
 interface ArticleProps {
   article: WikiArticle;
 }
 
 const ArticleCard = ({ article }: ArticleProps) => {
+  useEffect(() => {
+    // Track article view
+    const storage = StorageService.getInstance();
+    storage.addToHistory(article).catch(console.error);
+  }, [article]);
+
   return (
     <div className="h-screen w-full snap-item bg-slate-800 flex items-center justify-center relative">
       {article.thumbnail && (
@@ -15,7 +23,10 @@ const ArticleCard = ({ article }: ArticleProps) => {
         />
       )}
       <div className="max-w-lg p-6 text-white relative z-10">
-        <h2 className="text-2xl font-bold mb-4">{article.title}</h2>
+        <div className="flex justify-between items-start mb-4">
+          <h2 className="text-2xl font-bold pr-4">{article.title}</h2>
+          <SaveButton article={article} />
+        </div>
         <p className="text-gray-300">{article.excerpt}</p>
       </div>
     </div>

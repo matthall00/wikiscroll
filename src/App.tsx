@@ -1,10 +1,19 @@
 import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from 'react-query'
 import FeedContainer from './components/Feed/FeedContainer'
+import SavedArticles from './components/SavedArticles/SavedArticles'
+import History from './components/History/History'
 import BottomNav, { NavigationSection } from './components/Navigation/BottomNav'
 import ErrorBoundary from './components/ErrorBoundary'
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 3,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    },
+  },
+})
 
 function App() {
   const [currentSection, setCurrentSection] = useState<NavigationSection>('feed');
@@ -14,10 +23,9 @@ function App() {
       case 'feed':
         return <FeedContainer />;
       case 'saved':
-        // We'll implement these in Phase 3
-        return <div className="h-screen flex items-center justify-center text-white">Saved Articles Coming Soon</div>;
+        return <SavedArticles />;
       case 'history':
-        return <div className="h-screen flex items-center justify-center text-white">History Coming Soon</div>;
+        return <History />;
       default:
         return <FeedContainer />;
     }

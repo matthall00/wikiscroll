@@ -3,15 +3,21 @@ import { useEffect, useRef, TouchEvent, useState, useCallback } from 'react';
 import ArticleCard from './ArticleCard';
 import ArticleCardSkeleton from './ArticleCardSkeleton';
 import Header from '../Navigation/Header';
+import InterestPicker from '../Common/InterestPicker';
 import ErrorState from '../Common/ErrorState';
+import StorageService from '../../services/storage';
 import { fetchRandomArticles, fetchArticlesByCategory, WikiArticle } from '../../services/api';
 
 const FeedContainer = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<WikiArticle[]>([]);
+  const [showInterests, setShowInterests] = useState(false);
   const queryClient = useQueryClient();
+  const storage = StorageService.getInstance();
   let touchStart = 0;
+
+  const userInterests = storage.getInterests().map(i => i.name);
 
   const handleTouchStart = (e: TouchEvent) => {
     touchStart = e.touches[0].clientY;
@@ -34,11 +40,13 @@ const FeedContainer = () => {
     await queryClient.cancelQueries(['articles']);
     queryClient.removeQueries(['articles']);
     setSelectedCategory(category);
-    setSearchResults([]); // Clear search results when changing category
+    setSearchResults([]);
+    setShowInterests(false);
   }, [queryClient]);
 
   const handleSearchResults = useCallback((articles: WikiArticle[]) => {
     setSearchResults(articles);
+    setShowInterests(false);
   }, []);
 
   const {
@@ -51,32 +59,41 @@ const FeedContainer = () => {
     error,
     refetch
   } = useInfiniteQuery(
-    ['articles', selectedCategory],
+    ['articles', selectedCategory, userInterests],
     async ({ pageParam }) => {
-      try {
-        if (selectedCategory) {
-          const result = await fetchArticlesByCategory(selectedCategory, pageParam);
-          return {
-            articles: result.articles,
-            nextCursor: result.continuation
-          };
-        }
-        const articles = await fetchRandomArticles(5);
+      if (selectedCategory) {
+        const result = await fetchArticlesByCategory(selectedCategory, pageParam);
         return {
-          articles,
-          nextCursor: articles.length === 5 ? pageParam + 1 : undefined
+          articles: result.articles,
+          nextCursor: result.continuation
         };
-      } catch (err) {
-        // Log error for monitoring
-        console.error('Failed to fetch articles:', err);
-        throw err;
       }
+      
+      if (userInterests.length > 0 && !selectedCategory) {
+        const randomInterest = userInterests[Math.floor(Math.random() * userInterests.length)];
+        try {
+          const result = await fetchArticlesByCategory(randomInterest);
+          if (result.articles.length >= 5) {
+            return {
+              articles: result.articles,
+              nextCursor: result.continuation
+            };
+          }
+        } catch (error) {
+          console.error('Failed to fetch from interest:', error);
+        }
+      }
+      
+      const articles = await fetchRandomArticles(5);
+      return {
+        articles,
+        nextCursor: articles.length === 5 ? pageParam + 1 : undefined
+      };
     },
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor,
       refetchOnWindowFocus: false,
-      retry: 3, // Retry failed requests up to 3 times
-      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
+      cacheTime: 0,
     }
   );
 
@@ -103,7 +120,7 @@ const FeedContainer = () => {
 
   const articles = searchResults.length > 0 
     ? searchResults 
-    : (data?.pages.flatMap(page => page.articles) || []);
+    : (data?.pages?.flatMap(page => page.articles) || []);
 
   if (isError) {
     return (
@@ -124,26 +141,43 @@ const FeedContainer = () => {
         onSearchResults={handleSearchResults}
       />
 
-      <div 
-        ref={containerRef}
-        className="snap-container hide-scrollbar bg-slate-900 pt-16 pb-20"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-      >
-        {isLoading ? (
-          Array.from({ length: 3 }).map((_, i) => (
-            <ArticleCardSkeleton key={i} />
-          ))
-        ) : (
-          articles.map((article: WikiArticle) => (
-            <ArticleCard key={article.id} article={article} />
-          ))
-        )}
-        {!searchResults.length && isFetchingNextPage && <ArticleCardSkeleton />}
-        <div ref={containerRef} className="h-20" />
-      </div>
+      {showInterests ? (
+        <div className="fixed inset-0 z-40 bg-slate-900 pt-16 pb-20 overflow-auto">
+          <div className="max-w-lg mx-auto">
+            <div className="flex justify-between items-center p-4 border-b border-slate-700">
+              <h2 className="text-lg font-semibold text-white">Your Interests</h2>
+              <button
+                onClick={() => setShowInterests(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <InterestPicker />
+          </div>
+        </div>
+      ) : (
+        <div 
+          ref={containerRef}
+          className="snap-container hide-scrollbar bg-slate-900 pt-16 pb-20"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+        >
+          {isLoading ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <ArticleCardSkeleton key={i} />
+            ))
+          ) : (
+            articles.map((article: WikiArticle) => (
+              <ArticleCard key={article.id} article={article} />
+            ))
+          )}
+          {!searchResults.length && isFetchingNextPage && <ArticleCardSkeleton />}
+          <div ref={containerRef} className="h-20" />
+        </div>
+      )}
       
-      {selectedCategory && (
+      {selectedCategory ? (
         <div className="fixed bottom-20 right-6 z-40 bg-blue-500 text-white px-4 py-2 rounded-full shadow-lg text-sm font-medium flex items-center gap-2">
           <span>{selectedCategory}</span>
           <button
@@ -154,6 +188,13 @@ const FeedContainer = () => {
             ×
           </button>
         </div>
+      ) : (
+        <button
+          onClick={() => setShowInterests(true)}
+          className="fixed bottom-20 right-6 z-40 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-medium transition-colors"
+        >
+          {userInterests.length > 0 ? "✨ Interests" : "+ Add Interests"}
+        </button>
       )}
     </>
   );
