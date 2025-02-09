@@ -1,8 +1,11 @@
-import React from 'react';
-
 const ArticleCardSkeleton = () => {
   return (
-    <div className="h-screen w-full snap-item bg-slate-800 flex items-center justify-center relative overflow-hidden">
+    <div 
+      className="h-screen w-full snap-item bg-slate-800 flex items-center justify-center relative overflow-hidden"
+      data-testid="article-skeleton"
+      role="presentation"
+      aria-hidden="true"
+    >
       <div className="absolute inset-0 bg-gradient-to-b from-slate-700/50 to-slate-800/50 animate-pulse" />
       <div className="max-w-lg w-full p-6 relative z-10">
         <div className="flex justify-between items-start mb-6">

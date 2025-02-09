@@ -35,7 +35,7 @@ const FeedContainer = () => {
     refetch
   } = useInfiniteQuery(
     ['articles', selectedCategory, userInterests],
-    async ({ pageParam = 0 }) => {
+    async ({ pageParam = 1 }) => {
       if (selectedCategory) {
         const result = await fetchArticlesByCategory(selectedCategory, pageParam);
         return {
@@ -47,11 +47,11 @@ const FeedContainer = () => {
       if (userInterests.length > 0 && !selectedCategory) {
         const randomInterest = userInterests[Math.floor(Math.random() * userInterests.length)];
         try {
-          const result = await fetchArticlesByCategory(randomInterest);
-          if (result.articles.length >= 5) {
+          const result = await fetchArticlesByCategory(randomInterest, pageParam);
+          if (result.articles.length > 0) {
             return {
               articles: result.articles,
-              nextCursor: result.continuation
+              nextCursor: result.continuation || pageParam + 1
             };
           }
         } catch (error) {
@@ -59,10 +59,10 @@ const FeedContainer = () => {
         }
       }
       
-      const articles = await fetchRandomArticles(5);
+      const articles = await fetchRandomArticles(pageParam);
       return {
         articles,
-        nextCursor: articles.length === 5 ? pageParam + 1 : undefined
+        nextCursor: articles.length > 0 ? pageParam + 1 : undefined
       };
     },
     {
@@ -71,24 +71,31 @@ const FeedContainer = () => {
       refetchOnMount: false,
       cacheTime: 5 * 60 * 1000, // Cache for 5 minutes
       staleTime: 60 * 1000, // Consider data stale after 1 minute
-      retry: 3,
+      retry: 0,
       onError: () => {
         setRetryAttempts(prev => prev + 1);
       },
       // Add suspense mode to prevent loading states
       suspense: false,
       // Add keepPreviousData to prevent flash of loading state
-      keepPreviousData: true
+      keepPreviousData: true,
     }
   );
 
-  // Memoize articles array to prevent unnecessary re-renders
-  const articles = useMemo(() => 
-    searchResults.length > 0 
+  // Memoize articles array to prevent unnecessary re-renders and ensure uniqueness
+  const articles = useMemo(() => {
+    const articlesArray = searchResults.length > 0 
       ? searchResults 
-      : (data?.pages?.flatMap(page => page.articles) || []),
-    [searchResults, data?.pages]
-  );
+      : (data?.pages?.flatMap(page => page.articles) || []);
+    
+    // Use a Map to keep only the latest version of each article by ID
+    const uniqueArticles = new Map();
+    articlesArray.forEach(article => {
+      uniqueArticles.set(article.id, article);
+    });
+    
+    return Array.from(uniqueArticles.values());
+  }, [searchResults, data?.pages]);
 
   const { virtualItems } = useVirtualScroll(articles, {
     itemHeight: window.innerHeight,
@@ -112,9 +119,11 @@ const FeedContainer = () => {
     if (containerRef.current.scrollTop === 0 && touchEnd > pullStartY && !isRefreshing) {
       const pullDistance = touchEnd - pullStartY;
       if (pullDistance > 100) {
-        e.preventDefault();
+        //e.preventDefault();
+        console.log('Refreshing...');
         setIsRefreshing(true);
         refetch().finally(() => {
+          console.log('Refresh complete');
           setIsRefreshing(false);
           setPullStartY(0);
         });
@@ -164,30 +173,35 @@ const FeedContainer = () => {
     }
   }, [articles.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  // Update scroll handler to check for infinite loading
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
-          fetchNextPage();
-        }
-      },
-      { threshold: 0.5, rootMargin: '100px' }
-    );
+    const handleScroll = () => {
+      if (!containerRef.current || isFetchingNextPage || !hasNextPage) return;
+
+      const { scrollTop, clientHeight, scrollHeight } = containerRef.current;
+      const scrollThreshold = 200; // pixels from bottom
+      
+      if (scrollHeight - scrollTop - clientHeight < scrollThreshold) {
+        console.log('Loading more articles...');
+        fetchNextPage();
+      }
+    };
 
     const currentContainer = containerRef.current;
     if (currentContainer) {
-      observer.observe(currentContainer);
+      currentContainer.addEventListener('scroll', handleScroll);
     }
 
     return () => {
       if (currentContainer) {
-        observer.unobserve(currentContainer);
+        currentContainer.removeEventListener('scroll', handleScroll);
       }
-      observer.disconnect();
     };
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   if (isError) {
+    console.log('Rendering error state');
+    console.log('Error:', error);
     return (
       <CustomErrorPage 
         title="Failed to Load Articles"
@@ -199,7 +213,7 @@ const FeedContainer = () => {
   }
 
   return (
-    <>
+    <div role="feed-container">
       <Header
         onCategorySelect={handleCategorySelect}
         activeCategory={selectedCategory}
@@ -331,7 +345,7 @@ const FeedContainer = () => {
           {userInterests.length > 0 ? "✨ Interests" : "+ Add Interests"}
         </button>
       )}
-    </>
+    </div>
   );
 };
 
