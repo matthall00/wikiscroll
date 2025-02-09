@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useQuery } from 'react-query';
 import { searchArticles, WikiArticle } from '../../services/api';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';

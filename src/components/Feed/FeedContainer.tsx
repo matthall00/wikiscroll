@@ -340,7 +340,7 @@ const FeedContainer = () => {
       ) : (
         <button
           onClick={() => setShowInterests(true)}
-          className="fixed bottom-20 right-6 z-40 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-medium transition-colors"
+          className="fixed bottom-24 right-3 z-40 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-full shadow-lg text-sm font-medium transition-colors"
         >
           {userInterests.length > 0 ? "✨ Interests" : "+ Add Interests"}
         </button>

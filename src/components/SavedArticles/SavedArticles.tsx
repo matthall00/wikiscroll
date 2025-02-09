@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import StorageService from '../../services/storage';
 import ArticleCard from '../Feed/ArticleCard';
 import { WikiArticle } from '../../services/api';
@@ -8,13 +8,9 @@ const SavedArticles = () => {
   const [articles, setArticles] = useState<WikiArticle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const storage = StorageService.getInstance();
+  const storage = useMemo(() => StorageService.getInstance(), []);
 
-  useEffect(() => {
-    loadSavedArticles();
-  }, []);
-
-  const loadSavedArticles = async () => {
+  const loadSavedArticles = useCallback(async () => {
     try {
       setIsLoading(true);
       const savedArticles = await storage.getSavedArticles();
@@ -24,7 +20,11 @@ const SavedArticles = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [storage]);
+
+  useEffect(() => {
+    loadSavedArticles();
+  }, [loadSavedArticles]);
 
   if (error) {
     return <ErrorState message="Failed to load saved articles" onRetry={loadSavedArticles} />;
@@ -52,8 +52,13 @@ const SavedArticles = () => {
 
   return (
     <div className="snap-container hide-scrollbar bg-slate-900 pt-16 pb-20">
-      {articles.map((article) => (
-        <ArticleCard key={article.id} article={article} />
+      {articles.map((article, index) => (
+        <ArticleCard
+          key={article.id}
+          article={article}
+          index={index}
+          totalArticles={articles.length}
+        />
       ))}
     </div>
   );

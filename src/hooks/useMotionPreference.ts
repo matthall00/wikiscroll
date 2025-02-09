@@ -14,29 +14,32 @@ export function useMotionPreference(): MotionPreferences {
   });
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    // Safely check for matchMedia support (for testing environments)
+    const mediaQuery = typeof window !== 'undefined' && window.matchMedia 
+      ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      : null;
     
-    const updatePreferences = (reduceMotion: boolean) => {
-      setPreferences({
-        // Allow essential scrolling even with reduced motion
-        allowScroll: true,
-        // Disable fancy transitions if reduced motion is preferred
-        allowTransitions: !reduceMotion,
-        // Disable decorative animations if reduced motion is preferred
-        allowAnimations: !reduceMotion,
-      });
-    };
+    if (mediaQuery) {
+      const updatePreferences = (reduceMotion: boolean) => {
+        setPreferences({
+          allowScroll: true,
+          allowTransitions: !reduceMotion,
+          allowAnimations: !reduceMotion,
+        });
+      };
 
-    // Initial check
-    updatePreferences(mediaQuery.matches);
+      // Initial check
+      updatePreferences(mediaQuery.matches);
 
-    // Listen for changes
-    const handleChange = (e: MediaQueryListEvent) => {
-      updatePreferences(e.matches);
-    };
+      // Listen for changes
+      const handleChange = (e: MediaQueryListEvent) => {
+        updatePreferences(e.matches);
+      };
 
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+    return undefined;
   }, []);
 
   return preferences;

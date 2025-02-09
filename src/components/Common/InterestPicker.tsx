@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import StorageService from '../../services/storage';
 import { fetchCategories } from '../../services/api';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -10,12 +10,12 @@ const InterestPicker: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const debouncedSearchTerm = useDebouncedValue(searchTerm, 300);
-  const storage = StorageService.getInstance();
+  const storage = useMemo(() => StorageService.getInstance(), []);
 
   useEffect(() => {
     const userInterests = storage.getInterests();
     setInterests(userInterests.map(i => i.name));
-  }, []);
+  }, [storage]);
 
   useEffect(() => {
     const loadSuggestions = async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import StorageService from '../../services/storage';
 import ArticleCard from '../Feed/ArticleCard';
 import { WikiArticle } from '../../services/api';
@@ -8,13 +8,9 @@ const History = () => {
   const [articles, setArticles] = useState<WikiArticle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const storage = StorageService.getInstance();
+  const storage = useMemo(() => StorageService.getInstance(), []);
 
-  useEffect(() => {
-    loadHistory();
-  }, []);
-
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     try {
       setIsLoading(true);
       const viewedArticles = await storage.getHistory();
@@ -24,7 +20,11 @@ const History = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [storage]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   const handleClearHistory = async () => {
     try {
@@ -71,8 +71,13 @@ const History = () => {
         </div>
       ) : (
         <div className="snap-container hide-scrollbar">
-          {articles.map((article) => (
-            <ArticleCard key={article.id} article={article} />
+          {articles.map((article, index) => (
+            <ArticleCard
+              key={article.id}
+              article={article}
+              index={index}
+              totalArticles={articles.length}
+            />
           ))}
         </div>
       )}

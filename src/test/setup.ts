@@ -1,22 +1,49 @@
 import '@testing-library/jest-dom';
-import { beforeAll, afterEach, afterAll, vi } from 'vitest';
+import { beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { setupServer } from 'msw/node';
 import { HttpResponse, http } from 'msw';
+import { QueryClient } from 'react-query';
 
 // Mock IntersectionObserver
-const mockIntersectionObserver = vi.fn();
-mockIntersectionObserver.mockImplementation(() => ({
-  observe: () => null,
-  unobserve: () => null,
-  disconnect: () => null
-}));
-window.IntersectionObserver = mockIntersectionObserver;
+class MockIntersectionObserver {
+  readonly root: Element | null = null;
+  readonly rootMargin: string = '0px';
+  readonly thresholds: ReadonlyArray<number> = [0];
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+  takeRecords = vi.fn();
+  constructor(callback: IntersectionObserverCallback) {
+    setTimeout(() => callback([{ isIntersecting: true } as IntersectionObserverEntry], this), 0);
+  }
+}
 
-// Mock ResizeObserver
-window.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
+window.IntersectionObserver = MockIntersectionObserver as typeof IntersectionObserver;
+
+// Mock ResizeObserver with proper implementation
+class MockResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+  constructor(callback: ResizeObserverCallback) {
+    setTimeout(() => callback([{ 
+      contentRect: { width: 800, height: 600 } 
+    } as ResizeObserverEntry], this), 0);
+  }
+}
+
+window.ResizeObserver = MockResizeObserver as typeof ResizeObserver;
+
+// Mock matchMedia with proper implementation
+window.matchMedia = vi.fn().mockImplementation((query) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
 }));
 
 // Mock IndexedDB
@@ -58,16 +85,11 @@ window.indexedDB = {
   }),
 };
 
-// Mock matchMedia
-window.matchMedia = vi.fn().mockImplementation(query => ({
-  matches: false,
-  media: query,
-  onchange: null,
-  addListener: vi.fn(),
-  removeListener: vi.fn(),
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  dispatchEvent: vi.fn(),
+// Mock ToastContext
+vi.mock('../../hooks/useToast', () => ({
+  useToast: () => ({
+    showToast: vi.fn()
+  })
 }));
 
 // Mock MSW handlers for Wikipedia API
@@ -92,6 +114,18 @@ const server = setupServer(...handlers);
 
 // Start MSW server before tests
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+
+// Configure test environment
+beforeEach(() => {
+  // Create a new QueryClient for each test
+  new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+});
 
 // Reset handlers after each test
 afterEach(() => {

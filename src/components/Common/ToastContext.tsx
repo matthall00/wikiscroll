@@ -1,27 +1,12 @@
-import React, { createContext, useContext, useCallback, useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
-
-type ToastType = 'success' | 'error' | 'info';
+import { ToastContext, ToastType } from './toastContextDef';
 
 interface Toast {
   id: number;
   message: string;
   type: ToastType;
 }
-
-interface ToastContextValue {
-  showToast: (message: string, type: ToastType) => void;
-}
-
-const ToastContext = createContext<ToastContextValue | undefined>(undefined);
-
-export const useToast = () => {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider');
-  }
-  return context;
-};
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);

@@ -33,6 +33,32 @@ export interface WikiArticle {
   title: string;
   excerpt: string;
   thumbnail?: string;
+  position?: number;
+  totalArticles?: number;
+}
+
+interface WikiApiResponse {
+  query?: {
+    pages?: Record<string, {
+      pageid: number;
+      title: string;
+      extract?: string;
+      thumbnail?: {
+        source: string;
+      };
+    }>;
+    search?: Array<{
+      pageid: number;
+      title: string;
+    }>;
+    categorymembers?: Array<{
+      pageid: number;
+      title: string;
+    }>;
+  };
+  continue?: {
+    cmcontinue?: string;
+  };
 }
 
 export const fetchRandomArticles = async (limit: number = 5): Promise<WikiArticle[]> => {
@@ -59,13 +85,13 @@ export const fetchRandomArticles = async (limit: number = 5): Promise<WikiArticl
   });
 
   const response = await fetchWithRetry(`${WIKI_API_BASE}?${params}`);
-  const data = await response.json();
+  const data = (await response.json()) as WikiApiResponse;
   
   if (!data.query?.pages) {
     throw new Error('No articles found');
   }
 
-  const articles = Object.values(data.query.pages).map((page: any) => ({
+  const articles = Object.values(data.query.pages).map((page) => ({
     id: page.pageid,
     title: page.title,
     excerpt: page.extract?.substring(0, 200) + '...',
@@ -96,13 +122,13 @@ export const fetchCategories = async (search: string): Promise<WikiCategory[]> =
   });
 
   const response = await fetchWithRetry(`${WIKI_API_BASE}?${params}`);
-  const data = await response.json();
+  const data = (await response.json()) as WikiApiResponse;
 
   if (!data.query?.search) {
     throw new Error('No categories found');
   }
   
-  return data.query.search.map((result: any) => ({
+  return data.query.search.map((result) => ({
     title: result.title.replace('Category:', ''),
     id: result.pageid
   }));
@@ -138,14 +164,14 @@ export const fetchArticlesByCategory = async (category: string, continuationToke
   }
 
   const membersResponse = await fetchWithRetry(`${WIKI_API_BASE}?${membersParams}`);
-  const membersData = await membersResponse.json();
+  const membersData = (await membersResponse.json()) as WikiApiResponse;
 
   if (!membersData.query?.categorymembers?.length) {
     return { articles: [] };
   }
 
   // Fetch content for articles
-  const pageIds = membersData.query.categorymembers.map((m: any) => m.pageid).join('|');
+  const pageIds = membersData.query.categorymembers.map((m) => m.pageid).join('|');
   const contentParams = new URLSearchParams({
     action: 'query',
     format: 'json',
@@ -159,15 +185,15 @@ export const fetchArticlesByCategory = async (category: string, continuationToke
   });
 
   const contentResponse = await fetchWithRetry(`${WIKI_API_BASE}?${contentParams}`);
-  const contentData = await contentResponse.json();
+  const contentData = (await contentResponse.json()) as WikiApiResponse;
 
   if (!contentData.query?.pages) {
     throw new Error('Failed to fetch article content');
   }
 
   const articles = Object.values(contentData.query.pages)
-    .sort((a: any, b: any) => a.pageid - b.pageid)
-    .map((page: any) => ({
+    .sort((a, b) => a.pageid - b.pageid)
+    .map((page) => ({
       id: page.pageid,
       title: page.title,
       excerpt: page.extract?.substring(0, 200) + '...',
@@ -199,14 +225,14 @@ export const searchArticles = async (query: string): Promise<WikiArticle[]> => {
   });
 
   const searchResponse = await fetchWithRetry(`${WIKI_API_BASE}?${searchParams}`);
-  const searchData = await searchResponse.json();
+  const searchData = (await searchResponse.json()) as WikiApiResponse;
 
   if (!searchData.query?.search?.length) {
     return [];
   }
 
   // Then, get the full content for these articles
-  const pageIds = searchData.query.search.map((result: any) => result.pageid).join('|');
+  const pageIds = searchData.query.search.map((result) => result.pageid).join('|');
   const contentParams = new URLSearchParams({
     action: 'query',
     format: 'json',
@@ -220,13 +246,13 @@ export const searchArticles = async (query: string): Promise<WikiArticle[]> => {
   });
 
   const contentResponse = await fetchWithRetry(`${WIKI_API_BASE}?${contentParams}`);
-  const contentData = await contentResponse.json();
+  const contentData = (await contentResponse.json()) as WikiApiResponse;
 
   if (!contentData.query?.pages) {
     throw new Error('Failed to fetch article content');
   }
 
-  return Object.values(contentData.query.pages).map((page: any) => ({
+  return Object.values(contentData.query.pages).map((page) => ({
     id: page.pageid,
     title: page.title,
     excerpt: page.extract?.substring(0, 200) + '...',

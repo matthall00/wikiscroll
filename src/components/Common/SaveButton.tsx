@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import StorageService from '../../services/storage';
 import { WikiArticle } from '../../services/api';
-import { useToast } from '../Common/ToastContext';
+import { useToast } from '../../hooks/useToast';
 
 interface SaveButtonProps {
   article: WikiArticle;
@@ -10,14 +10,14 @@ interface SaveButtonProps {
 
 const SaveButton: React.FC<SaveButtonProps> = ({ article, "aria-describedby": describedBy }) => {
   const [isSaved, setIsSaved] = useState(false);
-  const storage = StorageService.getInstance();
+  const storage = useMemo(() => StorageService.getInstance(), []);
   const { showToast } = useToast();
 
   useEffect(() => {
     storage.getSavedArticles().then(articles => {
       setIsSaved(articles.some(a => a.id === article.id));
     });
-  }, [article.id]);
+  }, [article.id, storage]);
 
   const handleSave = async () => {
     try {
