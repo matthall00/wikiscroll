@@ -40,7 +40,7 @@ A TikTok-style Wikipedia reader that lets you discover articles through vertical
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/wikiscroll.git
+   git clone https://github.com/slightlyprivate/wikiscroll.git
    cd wikiscroll
    ```
 
